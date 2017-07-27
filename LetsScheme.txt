@@ -1,0 +1,4 @@
+(defmacro LetsScheme [var & body]
+    `(let ~(reduce into [] var) ~@body))
+
+//(macroexpand-1 '(LetsScheme ((x 10) (y 20))))
