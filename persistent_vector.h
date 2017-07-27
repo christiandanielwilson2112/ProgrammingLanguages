@@ -5,160 +5,175 @@
 #include <stdexcept>
 #include <vector>
 #include <iostream>
-#include <tgmath.h>
+#include <math.h>
 
-//type T template
 template <typename T>
-//superclass persistent_vector
 class persistent_vector {
 private:
-    //subclass node
     class node { 
     public: 
         virtual ~node() {} 
-        virtual void print_details() = 0;
-        virtual const T& index(const size_t height, const size_t index) = 0;
+        virtual void print_details() const = 0;
+        virtual const T& index(size_t height, size_t index) const = 0;
+        virtual std::shared_ptr<node> replace(size_t height, size_t index, const T& value) const = 0;
+        virtual std::shared_ptr<node> push_back(size_t height, size_t index, const T& value) const = 0;
     };
-    //subsubclass internal_node
-    class internal_node : public node { 
-    public:
-	    std::shared_ptr<node> left;
-            std::shared_ptr<node> right;
-            internal_node(std::shared_ptr<node> l, std::shared_ptr<node> r) { left = l; right = r; }
-            internal_node(std::shared_ptr<node> l) { left = l; }
-            void print_details(){
-                std::cout << "node " << this << " : " << left << " " << right << std::endl;
-                left->print_details();
-                if(right)
-                    right->print_details();
-            }
-	    //index func for internal_nodes            
-            const T& index(const size_t height, const size_t index){
-                if(index & (1<<height)){
-                    
-                    return right->index(height-1,index); 
-                }
-                else{
-                    return left->index(height-1,index);
-                }
-            }
-            
-    private:
-           
-            
-    };
-    //subsubsubclass leaf_node
+
+    typedef std::shared_ptr<node> node_ptr;
+
     class leaf_node : public node { 
     public:
-        T left;
-        T right;
-        bool hasright;
-        leaf_node(T l, T r){ left = l; right = r; hasright = true; }
-        leaf_node(T l){ left = l; hasright = false; }
-        virtual ~leaf_node() {};
+        leaf_node(const T& first ): m_values { first } { }
+        leaf_node(const T& first, const T& second ) : m_values { first, second} { } 
+        virtual ~leaf_node() { }
+        void print_details() const {
+            std::cout << "leaf " << this << " :";
+            for(auto& value : m_values) std::cout << " " << value;
+            std::cout << std::endl;
+        }
+        const T& index(size_t height, size_t index) const { return m_values.at(index&1); }
 
-        void print_details(){
-            std::cout << "leaf " << this << ": " << left;
-            if(hasright) 
-                std::cout << " " << right << std::endl;
-            else
-                std::cout << std::endl;
+        node_ptr replace(size_t height, size_t index, const T& value) const {
+		//<FILL IN HERE>
+		if(go_right(index, height)) {
+                return std::make_shared<leaf_node>( m_values[0],value );
+                } else {
+                return std::make_shared<leaf_node>( value, m_values[0] );
+                }
+		
         }
-	//index func for leaf_nodes
-        const T& index(const size_t height, const size_t index){
-            if(index & (1<<height)){
-                return right;
-            }
-            else{
-                return left;
-            }
+
+
+        node_ptr push_back(size_t height, size_t index, const T& value) const {
+            return std::make_shared<leaf_node>( m_values[0], value );
         }
-        
     private:
-	    
-           
+        const std::vector<T> m_values;
     };
+
+    static bool go_right(size_t index, size_t height) { return index&(1<<height);       } 
+    static bool full_tree(size_t size, size_t height) { return size == (1<<(height+1)); }
+
+    static node_ptr make_chain(size_t length, const T& value) { 
+        if (length==0) return std::make_shared<leaf_node>(value);
+        return std::make_shared<internal_node>(make_chain(length-1,value));
+    } 
+
+    class internal_node : public node { 
+    public:
+        internal_node(const node_ptr& left, const node_ptr& right ) : m_left(left), m_right(right) { } 
+        internal_node(const node_ptr& left) : m_left(left) { } 
+        virtual ~internal_node() { }
+        void print_details() const {
+           std::cout << "node " << this << " : " << m_left.get() << " " << m_right.get() << std::endl;
+           m_left->print_details();
+           if ( m_right ) m_right->print_details();
+        }
+        const T& index(size_t height, size_t index) const {
+            return (go_right(index,height)?m_right:m_left)->index(height-1,index);
+        }
+
+        node_ptr replace(size_t height, size_t index, const T& value) const {
+           // <FILL IN HERE>
+		if(go_right(index, height)) {
+                return std::make_shared<internal_node>( m_left, m_right->replace(height-1,index,value) );
+                } else {
+                return std::make_shared<internal_node>( m_left->replace(height-1,index,value), m_right );
+                }
+
+        }
+
+        node_ptr push_back(size_t height, size_t index, const T& value) const {
+            if ( go_right(index,height) ) 
+                return std::make_shared<internal_node>( m_left,
+                           m_right?m_right->push_back(height-1,index,value):
+                                   make_chain(height-1,value) );
+            return std::make_shared<internal_node>( m_left->push_back(height-1,index,value), m_right);
+        }
+    private:
+        const node_ptr m_left;
+        const node_ptr m_right;
+    };
+
+    template <typename node_type, typename vector_type>
+    std::vector<node_ptr> make_pairs(const vector_type& v){
+        std::vector<node_ptr> nodes;
+        for(size_t i=0; i < v.size(); i+=2 ) {
+            if ( i+1 < v.size() ) nodes.push_back(std::make_shared<node_type>(v[i],v[i+1]));
+            else                  nodes.push_back(std::make_shared<node_type>(v[i]));
+        }
+        return nodes;
+    }
+
+    node_ptr build_tree(const std::vector<node_ptr>& v) {
+        switch(v.size()) {
+        case 0:  return node_ptr{};
+        case 1:  return v[0];
+        default: return build_tree(make_pairs<internal_node>(v));
+        }
+    } 
+
+    size_t compute_height(size_t size) { return (m_size>1)?floor(log2(m_size-1)):0; }
+    persistent_vector( node_ptr head, size_t   size) :
+            m_head(head), m_size(size), m_height(compute_height(size)) { }
 
 public:
 
-    //recursive func for building trie
-    std::shared_ptr<node> constructorRec(std::vector<std::shared_ptr<node>> list_nodes){
-        if(list_nodes.size() == 1){
-            return list_nodes[0];
-        }
-        m_height += 1;
-        std::vector<std::shared_ptr<node>> nodes;
-        for(size_t i = 0; i < list_nodes.size(); i = i+2){
-            if(i+1 < list_nodes.size()){
-                nodes.push_back(std::shared_ptr<internal_node>(new internal_node(list_nodes[i],list_nodes[i+1])));
-            }
-            else{
-                nodes.push_back(std::shared_ptr<internal_node>(new internal_node(list_nodes[i])));
-            }
-        }
-        return constructorRec(nodes);
+    persistent_vector(): m_size(0),m_height(0) {}
 
-    }
+    persistent_vector(const persistent_vector& other) :
+        m_head(other.m_head),
+        m_size(other.m_size),
+        m_height(other.m_height) {}
 
-    //constructor
-    persistent_vector(const std::vector<T>& v) {
-	    if(v.size()==0){
-                m_size = 0;
-                m_height = 0;
-                return;
-            }
-            m_size = v.size();
-            m_height = 0;
-            std::vector<std::shared_ptr<node>> leafs;
+    persistent_vector(const std::vector<T>& v) :
+            m_head(build_tree(make_pairs<leaf_node>(v))),
+            m_size(v.size()),
+            m_height(compute_height(m_size)) {}
 
-            for(size_t i = 0; i < v.size(); i = i + 2){
-                if(i <= v.size() - 2){
-                    leafs.push_back(std::shared_ptr<leaf_node>(new leaf_node(v[i],v[i+1])));
-                }
-                else{
-                    leafs.push_back(std::shared_ptr<leaf_node>(new leaf_node(v[i])));
-                }
-            }
-            
-            m_head = constructorRec(leafs);
-            
-    }
-
-    //copy constructor
-    persistent_vector(const persistent_vector& other) {
-	    this.m_head = other.m_head;
-            this.m_size = other.m_size;
-            this.m_height = other.m_height;
-    }
-
-    //copy assignment operator
     const persistent_vector& operator=(const persistent_vector& other) {
-	    this.m_head = other.m_head;
-            this.m_height = other.m_height;
-            this.m_size = other.m_size;
-        return *this;
+        m_height = other.m_height;
+        m_size   = other.m_size;
+        m_head   = other.m_head;
+        return   *this;
     }
 
-    //bracket operator
+    const T& at(size_t index) const {
+        if ( index >= m_size) throw std::out_of_range("out-of-range");
+        return m_head->index(m_height,index);
+    }
+
     const T& operator[](size_t index) const {
-        if(index >= m_size) throw std::out_of_range("out-of-range");
-        if(m_size <= 0) throw std::out_of_range("vector with no elements");
-        return m_head->index(m_height, index);
-
+        return at(index);
     }
 
-    //print details func
+    persistent_vector<T> push_back(const T& value) const {
+        if(m_size==0) return persistent_vector(std::make_shared<leaf_node>(value),1);
+        if( full_tree(m_size,m_height) )
+            return persistent_vector(
+                std::make_shared<internal_node>( m_head, 
+                                                 make_chain(m_height,value)),m_size+1);
+        return persistent_vector(m_head->push_back(m_height,m_size,value),m_size+1);
+    }
+
+
+    persistent_vector<T> replace(size_t index, const T& value) const {
+        if ( index >= m_size) throw std::out_of_range("out-of-range");
+//        <FILL IN HERE>
+	return persistent_vector(m_head->replace(m_height, index, value), m_size);	
+    }
+
+
     void print_details() const {
-        std::cout << "persistent_vector of " << m_size << " elements with height " << m_height << std::endl;
-	if(m_size) {
-	    m_head->print_details();
-	}
+        std::cout << "persistent_vector of "  << m_size 
+                  << " elements with height " << m_height << std::endl;
+        if(m_size) m_head->print_details();
     }
 
     private:
-	std::shared_ptr<node> m_head;
-	size_t m_size;
-	size_t m_height;
+        node_ptr m_head;
+        size_t   m_size;
+        size_t   m_height;
 };
 
 #endif // defined PERSISTENT_VECTOR_H
