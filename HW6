@@ -1,0 +1,5 @@
+1. (def one (fn rev[x] (reduce conj '() x)))
+
+2. (def two (fn palindrome[x] (= (seq x) (reverse () x))))
+
+3. (def three (fn fact[x] (if (<= x 1) 1 (* x  (fact (- x 1))))))
